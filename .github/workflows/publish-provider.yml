@@ -1,14 +1,13 @@
 name: Publish Terraform Provider
 
 on:
-  workflow_run:
-    workflows: ["Release"]
-    types:
-      - completed
+  workflow_call:
+    secrets:
+      tfe_token:
+        required: true
 
 jobs:
   publish:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     environment: publish
 
@@ -16,20 +15,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Extract short version
+        id: extract_version
+        run: |
+          REF_NAME="${{ github.ref }}"
+          TAG_NAME="${REF_NAME#refs/tags/}"
+          FULL_VERSION="${TAG_NAME#v}"
+          SHORT_VERSION=$(echo "$FULL_VERSION" | sed -E 's/^([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          echo "short_version=$SHORT_VERSION" >> $GITHUB_ENV
+          echo "full_version=$FULL_VERSION" >> $GITHUB_ENV
+
       - name: Download release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release download ${{ github.event.workflow_run.head_branch }} --repo ${{ github.repository }} --dir dist/
-
-      - name: Extract short version
-        id: extract_version
-        run: |
-          TAG_NAME="${{ github.event.workflow_run.head_branch }}"
-          SHORT_VERSION=$(echo "$TAG_NAME" | sed -E 's/v([0-9]+\.[0-9]+\.[0-9]+)-.*/\1/')
-          FULL_VERSION=$(echo "$TAG_NAME" | sed -E 's/v//')
-          echo "short_version=$SHORT_VERSION" >> $GITHUB_ENV
-          echo "full_version=$FULL_VERSION" >> $GITHUB_ENV
+          gh release download v${{ env.full_version }} --repo ${{ github.repository }} --dir dist/
 
       - name: Create version.json
         run: |
@@ -49,7 +49,7 @@ jobs:
       - name: Create provider version in Terraform Enterprise
         id: create_version
         env:
-          TOKEN: ${{ secrets.TFE_TOKEN }}
+          TOKEN: ${{ secrets.tfe_token }}
         run: |
           RESPONSE=$(curl -s -X POST \
             --header "Authorization: Bearer $TOKEN" \
@@ -70,7 +70,7 @@ jobs:
 
       - name: Process and Upload Provider Binaries
         env:
-          TOKEN: ${{ secrets.TFE_TOKEN }}
+          TOKEN: ${{ secrets.tfe_token }}
         run: |
           for file in dist/*.zip; do
           filename=$(basename "$file")
