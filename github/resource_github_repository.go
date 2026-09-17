@@ -822,7 +822,22 @@ func resourceGithubRepositoryRead(ctx context.Context, d *schema.ResourceData, m
 	_ = d.Set("has_wiki", repo.GetHasWiki())
 	_ = d.Set("is_template", repo.GetIsTemplate())
 	_ = d.Set("full_name", repo.GetFullName())
-	_ = d.Set("default_branch", repo.GetDefaultBranch())
+	// default_branch is deprecated and is normally owned by the github_branch_default
+	// resource. Only reflect the live value into state when the user explicitly sets it
+	// in configuration; otherwise a non-"main" default (set via github_branch_default)
+	// surfaces as perpetual "changed outside Terraform" drift, because state is written
+	// as the auto-init branch at create and never reconciled. During import there is no
+	// config (RawConfig is null), so the value is still recorded as before.
+	// See https://github.com/integrations/terraform-provider-github/issues/513.
+	syncDefaultBranch := true
+	if rc := d.GetRawConfig(); !rc.IsNull() {
+		if a := rc.GetAttr("default_branch"); a.IsNull() {
+			syncDefaultBranch = false
+		}
+	}
+	if syncDefaultBranch {
+		_ = d.Set("default_branch", repo.GetDefaultBranch())
+	}
 	_ = d.Set("html_url", repo.GetHTMLURL())
 	_ = d.Set("ssh_clone_url", repo.GetSSHURL())
 	_ = d.Set("svn_url", repo.GetSVNURL())
